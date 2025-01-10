@@ -49,3 +49,30 @@ userLogin = do
           if input == userpw
             then return $ Right (append "Domain: " domain)
             else return $ Left WrongPassword
+
+newtype EitherIO e a = EitherIO {runEitherIO :: IO (Either e a)}
+
+instance Functor (EitherIO e) where
+  fmap f x =
+    let ioe = runEitherIO x
+     in EitherIO $ fmap (fmap f) ioe
+
+instance Applicative (EitherIO e) where
+  pure x = EitherIO $ return $ Right x
+  f <*> x =
+    let ioef = runEitherIO f
+        ioex = runEitherIO x
+     in EitherIO $ do
+          ef <- ioef
+          ex <- ioex
+          return $ ef <*> ex
+
+instance Monad (EitherIO e) where
+  return = pure
+  x >>= f =
+    let iox = runEitherIO x
+     in EitherIO $ do
+          res <- iox
+          case res of
+            Left err -> return $ Left err
+            Right val -> runEitherIO (f val)
