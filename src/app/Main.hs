@@ -27,22 +27,22 @@ printResult' (Left a) = T.putStrLn $ append "Error: " (pack $ show a)
 loginEitherToText :: Either LoginError Text -> Text
 loginEitherToText = either (const "Invalid Email") (append "Domain: ")
 
-printResult :: EitherIO LoginError Text -> IO ()
+printResult :: ExceptIO LoginError Text -> IO ()
 printResult input = do
-  e <- runEitherIO input
+  e <- runExceptIO input
   case e of
     Right domain -> T.putStrLn $ append "Domain: " domain
     Left InvalidEmail -> T.putStrLn "Invalid Email"
     Left NoSuchUser -> T.putStrLn "No Such User"
     Left WrongPassword -> T.putStrLn "Wrong Password"
 
-getToken :: EitherIO LoginError Text
+getToken :: ExceptIO LoginError Text
 getToken = do
   liftIO $ T.putStrLn "Please enter your email:"
   text <- liftIO T.getLine
   liftEither $ getDomain text
 
-userLogin :: EitherIO LoginError Text
+userLogin :: ExceptIO LoginError Text
 userLogin = do
   domain <- getToken
   userpw <- maybe (throwE NoSuchUser) return (Map.lookup domain users)
@@ -51,38 +51,38 @@ userLogin = do
     then return domain
     else throwE WrongPassword
 
-newtype EitherIO e a = EitherIO {runEitherIO :: IO (Either e a)}
+newtype ExceptIO e a = EitherIO {runExceptIO :: IO (Either e a)}
 
-instance Functor (EitherIO e) where
+instance Functor (ExceptIO e) where
   fmap f x =
-    let ioe = runEitherIO x
+    let ioe = runExceptIO x
      in EitherIO $ fmap (fmap f) ioe
 
-instance Applicative (EitherIO e) where
+instance Applicative (ExceptIO e) where
   pure x = EitherIO $ return $ Right x
   f <*> x =
-    let ioef = runEitherIO f
-        ioex = runEitherIO x
+    let ioef = runExceptIO f
+        ioex = runExceptIO x
      in EitherIO $ do
           ef <- ioef
           ex <- ioex
           return $ ef <*> ex
 
-instance Monad (EitherIO e) where
+instance Monad (ExceptIO e) where
   return = pure
   x >>= f =
-    let iox = runEitherIO x
+    let iox = runExceptIO x
      in EitherIO $ do
           res <- iox
           case res of
             Left err -> return $ Left err
-            Right val -> runEitherIO (f val)
+            Right val -> runExceptIO (f val)
 
-liftEither :: Either a b -> EitherIO a b
+liftEither :: Either a b -> ExceptIO a b
 liftEither e = EitherIO $ return e
 
-liftIO :: IO b -> EitherIO a b
+liftIO :: IO b -> ExceptIO a b
 liftIO io = EitherIO $ fmap Right io
 
-throwE :: e -> EitherIO e a
+throwE :: e -> ExceptIO e a
 throwE err = liftEither $ Left err
