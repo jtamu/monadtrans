@@ -8,9 +8,9 @@ import Data.Text (Text, append, pack, splitOn)
 import Data.Text.IO qualified as T
 
 main :: IO ()
-main = void $ runExceptIO loginDialog
+main = void $ runExceptT loginDialog
 
-loginDialog :: ExceptIO LoginError ()
+loginDialog :: ExceptT IO LoginError ()
 loginDialog = do
   let retry = userLogin `catchE` wrongPasswordHandler
   token <- retry `catchE` printError
@@ -34,16 +34,16 @@ printResult' (Left a) = T.putStrLn $ append "Error: " (pack $ show a)
 loginEitherToText :: Either LoginError Text -> Text
 loginEitherToText = either (const "Invalid Email") (append "Domain: ")
 
-printResult :: ExceptIO LoginError Text -> IO ()
+printResult :: ExceptT IO LoginError Text -> IO ()
 printResult input = do
-  e <- runExceptIO input
+  e <- runExceptT input
   case e of
     Right domain -> T.putStrLn $ append "Domain: " domain
     Left InvalidEmail -> T.putStrLn "Invalid Email"
     Left NoSuchUser -> T.putStrLn "No Such User"
     Left WrongPassword -> T.putStrLn "Wrong Password. No more chances."
 
-printError :: LoginError -> ExceptIO LoginError a
+printError :: LoginError -> ExceptT IO LoginError a
 printError e = do
   liftIO $ T.putStrLn $ case e of
     InvalidEmail -> "Invalid Email"
@@ -51,13 +51,13 @@ printError e = do
     WrongPassword -> "Wrong Password. No more chances."
   throwE e
 
-getToken :: ExceptIO LoginError Text
+getToken :: ExceptT IO LoginError Text
 getToken = do
   liftIO $ T.putStrLn "Please enter your email:"
   text <- liftIO T.getLine
   liftEither $ getDomain text
 
-userLogin :: ExceptIO LoginError Text
+userLogin :: ExceptT IO LoginError Text
 userLogin = do
   domain <- getToken
   userpw <- maybe (throwE NoSuchUser) return (Map.lookup domain users)
@@ -66,51 +66,51 @@ userLogin = do
     then return domain
     else throwE WrongPassword
 
-newtype ExceptIO e a = EitherIO {runExceptIO :: IO (Either e a)}
+newtype ExceptT m e a = ExceptT {runExceptT :: m (Either e a)}
 
-instance Functor (ExceptIO e) where
+instance (Functor m) => Functor (ExceptT m e) where
   fmap f x =
-    let ioe = runExceptIO x
-     in EitherIO $ fmap (fmap f) ioe
+    let ioe = runExceptT x
+     in ExceptT $ fmap (fmap f) ioe
 
-instance Applicative (ExceptIO e) where
-  pure x = EitherIO $ return $ Right x
+instance (Monad m) => Applicative (ExceptT m e) where
+  pure x = ExceptT $ return $ Right x
   f <*> x =
-    let ioef = runExceptIO f
-        ioex = runExceptIO x
-     in EitherIO $ do
+    let ioef = runExceptT f
+        ioex = runExceptT x
+     in ExceptT $ do
           ef <- ioef
           ex <- ioex
           return $ ef <*> ex
 
-instance Monad (ExceptIO e) where
+instance (Monad m) => Monad (ExceptT m e) where
   return = pure
   x >>= f =
-    let iox = runExceptIO x
-     in EitherIO $ do
+    let iox = runExceptT x
+     in ExceptT $ do
           res <- iox
           case res of
             Left err -> return $ Left err
-            Right val -> runExceptIO (f val)
+            Right val -> runExceptT (f val)
 
-liftEither :: Either a b -> ExceptIO a b
-liftEither e = EitherIO $ return e
+liftEither :: (Monad m) => Either a b -> ExceptT m a b
+liftEither e = ExceptT $ return e
 
-liftIO :: IO b -> ExceptIO a b
-liftIO io = EitherIO $ fmap Right io
+liftIO :: IO b -> ExceptT IO a b
+liftIO io = ExceptT $ fmap Right io
 
-throwE :: e -> ExceptIO e a
+throwE :: (Monad m) => e -> ExceptT m e a
 throwE err = liftEither $ Left err
 
-catchE :: ExceptIO e a -> (e -> ExceptIO e a) -> ExceptIO e a
+catchE :: (Monad m) => ExceptT m e a -> (e -> ExceptT m e a) -> ExceptT m e a
 catchE throwing handler =
-  EitherIO $ do
-    e <- runExceptIO throwing
+  ExceptT $ do
+    e <- runExceptT throwing
     case e of
-      Left err -> runExceptIO (handler err)
+      Left err -> runExceptT (handler err)
       success -> return success
 
-wrongPasswordHandler :: LoginError -> ExceptIO LoginError Text
+wrongPasswordHandler :: LoginError -> ExceptT IO LoginError Text
 wrongPasswordHandler WrongPassword = do
   liftIO $ T.putStrLn "Wrong password. One more chance."
   userLogin
