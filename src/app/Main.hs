@@ -14,7 +14,7 @@ loginDialog :: ExceptT IO LoginError ()
 loginDialog = do
   let retry = userLogin `catchE` wrongPasswordHandler
   token <- retry `catchE` printError
-  liftIO $ T.putStrLn (append "Logged in with token: " token)
+  lift $ T.putStrLn (append "Logged in with token: " token)
 
 data LoginError = InvalidEmail | NoSuchUser | WrongPassword deriving (Show)
 
@@ -45,7 +45,7 @@ printResult input = do
 
 printError :: LoginError -> ExceptT IO LoginError a
 printError e = do
-  liftIO $ T.putStrLn $ case e of
+  lift $ T.putStrLn $ case e of
     InvalidEmail -> "Invalid Email"
     NoSuchUser -> "No Such User"
     WrongPassword -> "Wrong Password. No more chances."
@@ -53,15 +53,15 @@ printError e = do
 
 getToken :: ExceptT IO LoginError Text
 getToken = do
-  liftIO $ T.putStrLn "Please enter your email:"
-  text <- liftIO T.getLine
+  lift $ T.putStrLn "Please enter your email:"
+  text <- lift T.getLine
   liftEither $ getDomain text
 
 userLogin :: ExceptT IO LoginError Text
 userLogin = do
   domain <- getToken
   userpw <- maybe (throwE NoSuchUser) return (Map.lookup domain users)
-  input <- liftIO $ T.putStrLn "Please enter your password:" >> T.getLine
+  input <- lift $ T.putStrLn "Please enter your password:" >> T.getLine
   if input == userpw
     then return domain
     else throwE WrongPassword
@@ -96,8 +96,8 @@ instance (Monad m) => Monad (ExceptT m e) where
 liftEither :: (Monad m) => Either a b -> ExceptT m a b
 liftEither e = ExceptT $ return e
 
-liftIO :: IO b -> ExceptT IO a b
-liftIO io = ExceptT $ fmap Right io
+lift :: (Functor m) => m b -> ExceptT m a b
+lift io = ExceptT $ fmap Right io
 
 throwE :: (Monad m) => e -> ExceptT m e a
 throwE err = liftEither $ Left err
@@ -112,6 +112,6 @@ catchE throwing handler =
 
 wrongPasswordHandler :: LoginError -> ExceptT IO LoginError Text
 wrongPasswordHandler WrongPassword = do
-  liftIO $ T.putStrLn "Wrong password. One more chance."
+  lift $ T.putStrLn "Wrong password. One more chance."
   userLogin
 wrongPasswordHandler err = throwE err
