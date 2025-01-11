@@ -27,28 +27,29 @@ printResult' (Left a) = T.putStrLn $ append "Error: " (pack $ show a)
 loginEitherToText :: Either LoginError Text -> Text
 loginEitherToText = either (const "Invalid Email") (append "Domain: ")
 
-printResult :: Either LoginError Text -> IO ()
-printResult = T.putStrLn . loginEitherToText
+printResult :: EitherIO LoginError Text -> IO ()
+printResult input = do
+  e <- runEitherIO input
+  case e of
+    Right domain -> T.putStrLn $ append "Domain: " domain
+    Left InvalidEmail -> T.putStrLn "Invalid Email"
+    Left NoSuchUser -> T.putStrLn "No Such User"
+    Left WrongPassword -> T.putStrLn "Wrong Password"
 
-getToken :: IO (Either LoginError Text)
+getToken :: EitherIO LoginError Text
 getToken = do
-  T.putStrLn "Please enter your email:"
-  getDomain <$> T.getLine
+  liftIO $ T.putStrLn "Please enter your email:"
+  text <- liftIO T.getLine
+  liftEither $ getDomain text
 
-userLogin :: IO (Either LoginError Text)
+userLogin :: EitherIO LoginError Text
 userLogin = do
-  token <- getToken
-  case token of
-    left@(Left _) -> return left
-    Right domain ->
-      case Map.lookup domain users of
-        Nothing -> return $ Left NoSuchUser
-        Just userpw -> do
-          T.putStrLn "Please enter your password:"
-          input <- T.getLine
-          if input == userpw
-            then return $ Right (append "Domain: " domain)
-            else return $ Left WrongPassword
+  domain <- getToken
+  userpw <- maybe (liftEither $ Left NoSuchUser) return (Map.lookup domain users)
+  input <- liftIO $ T.putStrLn "Please enter your password:" >> T.getLine
+  if input == userpw
+    then liftEither $ Right domain
+    else liftEither $ Left WrongPassword
 
 newtype EitherIO e a = EitherIO {runEitherIO :: IO (Either e a)}
 
@@ -76,3 +77,9 @@ instance Monad (EitherIO e) where
           case res of
             Left err -> return $ Left err
             Right val -> runEitherIO (f val)
+
+liftEither :: Either a b -> EitherIO a b
+liftEither e = EitherIO $ return e
+
+liftIO :: IO b -> EitherIO a b
+liftIO io = EitherIO $ fmap Right io
