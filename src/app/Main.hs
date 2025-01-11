@@ -2,12 +2,19 @@
 
 module Main where
 
+import Control.Monad (void)
 import Data.Map qualified as Map
 import Data.Text (Text, append, pack, splitOn)
 import Data.Text.IO qualified as T
 
 main :: IO ()
-main = print $ getDomain "test@example.com"
+main = void $ runExceptIO loginDialog
+
+loginDialog :: ExceptIO LoginError ()
+loginDialog = do
+  let retry = userLogin `catchE` wrongPasswordHandler
+  token <- retry `catchE` printError
+  liftIO $ T.putStrLn (append "Logged in with token: " token)
 
 data LoginError = InvalidEmail | NoSuchUser | WrongPassword deriving (Show)
 
@@ -34,7 +41,15 @@ printResult input = do
     Right domain -> T.putStrLn $ append "Domain: " domain
     Left InvalidEmail -> T.putStrLn "Invalid Email"
     Left NoSuchUser -> T.putStrLn "No Such User"
-    Left WrongPassword -> T.putStrLn "Wrong Password"
+    Left WrongPassword -> T.putStrLn "Wrong Password. No more chances."
+
+printError :: LoginError -> ExceptIO LoginError a
+printError e = do
+  liftIO $ T.putStrLn $ case e of
+    InvalidEmail -> "Invalid Email"
+    NoSuchUser -> "No Such User"
+    WrongPassword -> "Wrong Password. No more chances."
+  throwE e
 
 getToken :: ExceptIO LoginError Text
 getToken = do
@@ -86,3 +101,17 @@ liftIO io = EitherIO $ fmap Right io
 
 throwE :: e -> ExceptIO e a
 throwE err = liftEither $ Left err
+
+catchE :: ExceptIO e a -> (e -> ExceptIO e a) -> ExceptIO e a
+catchE throwing handler =
+  EitherIO $ do
+    e <- runExceptIO throwing
+    case e of
+      Left err -> runExceptIO (handler err)
+      success -> return success
+
+wrongPasswordHandler :: LoginError -> ExceptIO LoginError Text
+wrongPasswordHandler WrongPassword = do
+  liftIO $ T.putStrLn "Wrong password. One more chance."
+  userLogin
+wrongPasswordHandler err = throwE err
