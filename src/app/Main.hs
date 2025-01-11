@@ -45,11 +45,11 @@ getToken = do
 userLogin :: EitherIO LoginError Text
 userLogin = do
   domain <- getToken
-  userpw <- maybe (liftEither $ Left NoSuchUser) return (Map.lookup domain users)
+  userpw <- maybe (throwE NoSuchUser) return (Map.lookup domain users)
   input <- liftIO $ T.putStrLn "Please enter your password:" >> T.getLine
   if input == userpw
-    then liftEither $ Right domain
-    else liftEither $ Left WrongPassword
+    then return domain
+    else throwE WrongPassword
 
 newtype EitherIO e a = EitherIO {runEitherIO :: IO (Either e a)}
 
@@ -83,3 +83,6 @@ liftEither e = EitherIO $ return e
 
 liftIO :: IO b -> EitherIO a b
 liftIO io = EitherIO $ fmap Right io
+
+throwE :: e -> EitherIO e a
+throwE err = liftEither $ Left err
